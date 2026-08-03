@@ -32,10 +32,14 @@
 
 import socket
 import sys
+import time
 
 import rclpy
 
 from libnmea_navsat_driver.driver import Ros2NMEADriver
+
+# Delay before rebinding the socket after a failed setup attempt.
+RECONNECT_DELAY_SEC = 1.0
 
 
 def main(args=None):
@@ -59,9 +63,13 @@ def main(args=None):
 
     # Connection-loop: connect and keep receiving. If receiving fails, reconnect
     while rclpy.ok():
+        socket_ = None
         try:
             # Create a socket
             socket_ = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+            # Allow rebinding the port immediately after a teardown
+            socket_.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
             # Bind the socket to the port
             socket_.bind((local_ip, local_port))
@@ -69,31 +77,41 @@ def main(args=None):
             # Set timeout
             socket_.settimeout(timeout)
         except socket.error as exc:
-            driver.get_logger().error("Caught exception socket.error when setting up socket: %s" % exc)
-            sys.exit(1)
+            if socket_ is not None:
+                socket_.close()
+            driver.get_logger().error(
+                "Caught exception socket.error when setting up socket: %s. Retrying in %s seconds."
+                % (exc, RECONNECT_DELAY_SEC))
+            time.sleep(RECONNECT_DELAY_SEC)
+            continue
 
         # recv-loop: When we're connected, keep receiving stuff until that fails
         while rclpy.ok():
             try:
                 data, remote_address = socket_.recvfrom(buffer_size)
-
-                # strip the data
-                data_list = data.decode("ascii").strip().split("\n")
-
-                for data in data_list:
-
-                    try:
-                        driver.add_sentence(data, frame_id)
-                    except ValueError as e:
-                        driver.get_logger().warn(
-                            "Value error, likely due to missing fields in the NMEA message. "
-                            "Error was: %s. Please report this issue at github.com/ros-drivers/nmea_navsat_driver, "
-                            "including a bag file with the NMEA sentences that caused it." % e)
-
+            except socket.timeout:
+                # No datagram arrived within timeout_sec. A quiet NMEA source is
+                # not an error, so keep waiting instead of tearing the socket
+                # down. socket.timeout subclasses socket.error, so this must be
+                # caught first.
+                continue
             except socket.error as exc:
                 driver.get_logger().error("Caught exception socket.error during recvfrom: %s" % exc)
                 socket_.close()
                 # This will break out of the recv-loop so we start another iteration of the connection-loop
                 break
+
+            # strip the data
+            data_list = data.decode("ascii").strip().split("\n")
+
+            for data in data_list:
+
+                try:
+                    driver.add_sentence(data, frame_id)
+                except ValueError as e:
+                    driver.get_logger().warn(
+                        "Value error, likely due to missing fields in the NMEA message. "
+                        "Error was: %s. Please report this issue at github.com/ros-drivers/nmea_navsat_driver, "
+                        "including a bag file with the NMEA sentences that caused it." % e)
 
         socket_.close()  # Close socket
