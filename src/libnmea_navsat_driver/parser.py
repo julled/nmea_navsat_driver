@@ -34,7 +34,7 @@ import re
 import datetime
 import calendar
 import math
-import rclpy
+import rclpy.logging
 
 logger = rclpy.logging.get_logger('nmea_navsat_driver')
 

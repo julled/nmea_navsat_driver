@@ -1,10 +1,5 @@
 """Tests for NMEA sentence parsing, in particular talker ID handling."""
 
-# parser.py does `import rclpy` but uses `rclpy.logging` at module scope, which
-# is only populated once something else imports that submodule. Import it here
-# so the parser module can be imported on its own.
-import rclpy.logging  # noqa: F401
-
 import pytest
 
 from libnmea_navsat_driver.parser import parse_nmea_sentence
