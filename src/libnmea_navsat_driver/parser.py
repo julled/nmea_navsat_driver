@@ -203,17 +203,25 @@ parse_maps = {
 }
 
 
+# $ + optional two-character talker ID + three-character sentence type.
+# Talker IDs are open-ended (GP/GN/GL for GNSS receivers, II for integrated
+# instrumentation, HE for a gyro compass, ...), so whitelisting them drops
+# valid sentences. parse_maps above is the real filter on sentence type.
+NMEA_SENTENCE_RE = re.compile(
+    r'^\$(?:[A-Z]{2})?(?P<sentence_type>[A-Z]{3}),.*\*[0-9A-Fa-f]{2}$')
+
+
 def parse_nmea_sentence(nmea_sentence):
     # Check for a valid nmea sentence
+    match = NMEA_SENTENCE_RE.match(nmea_sentence)
 
-    if not re.match(r'(^\$GP|^\$GN|^\$GL|^\$IN|^\$HDT).*\*[0-9A-Fa-f]{2}$', nmea_sentence):
+    if not match:
         logger.debug("Regex didn't match, sentence not valid NMEA? Sentence was: %s"
                      % repr(nmea_sentence))
         return False
     fields = [field.strip(',') for field in nmea_sentence.split(',')]
 
-    # Ignore the $ and talker ID portions (e.g. GP)
-    sentence_type = fields[0][3:]
+    sentence_type = match.group('sentence_type')
 
     if sentence_type not in parse_maps:
         logger.debug("Sentence type %s not in parse map, ignoring."
